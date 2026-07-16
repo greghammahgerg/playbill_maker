@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        /* Specific CSS rules for physical print media formatting */
+        @page {
+            size: 5.5in 8.5in; /* Dimensions for standard physical US Half-Letter playbills */
+            margin: 0.5in;
+        }
+        body {
+            font-family: "Georgia", "Times New Roman", serif; /* Classic elegant theatrical font styling */
+            color: #000000;
+            background-color: #ffffff;
+            margin: 0;
+            padding: 0;
+        }
+        .profile-container {
+            width: 100%;
+            page-break-inside: avoid; /* Ensures content stays together on the physical page */
+        }
+        .headshot {
+            width: 2.0in;
+            height: 2.5in;
+            object-fit: cover;
+            float: left; /* Text wraps elegantly next to the photo frame */
+            margin-right: 0.3in;
+            margin-bottom: 0.1in;
+            border: 1px solid #000000;
+        }
+        .musician-name {
+            font-size: 20pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12pt;
+            line-height: 1.1;
+        }
+        .biography {
+            font-size: 10.5pt;
+            line-height: 1.5;
+            text-align: justify; /* Justified text gives a polished, traditional newsprint look */
+        }
+    </style>
+</head>
+<body>
+    <div class="profile-container">
+        <!-- WeasyPrint pulls the raw image path directly from your computer files -->
+        <img src="{{ image_path }}" class="headshot">
+        <div class="musician-name">{{ name }}</div>
+        <div class="biography">{{ bio }}</div>
+    </div>
+</body>
+</html>
