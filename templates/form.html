@@ -1,41 +1,278 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta超 charset="UTF-8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Musician Playbill Portal</title>
+    <title>Musician Program Portal</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f5f7; padding: 20px; }
-        .form-container { max-width: 500px; background: white; padding: 30px; margin: 0 auto; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        h2 { margin-top: 0; color: #333; }
-        .field { margin-bottom: 20px; }
-        label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
-        input[type="text"], textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        textarea { height: 120px; resize: vertical; }
-        input[type="file"] { border: none; padding: 0; }
-        button { background: #0070f3; color: white; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%; }
-        button:hover { background: #0051a8; }
+        :root { --cream: #f8f6f1; --gold: #dccfa8; --ink: #33302a; --green: #5c6b4f; --red: #611a15; }
+        body { margin: 0; padding: 32px 16px; background: var(--cream); color: var(--ink); font-family: Georgia, serif; }
+        header, .form-container { width: min(100%, 680px); margin: 0 auto; }
+        header { margin-bottom: 16px; }
+        header h1 { margin: 0; color: #4a4536; }
+        .form-container { box-sizing: border-box; padding: 32px; border: 1px solid var(--gold); background: white; box-shadow: 0 6px 20px rgba(74, 69, 54, .08); }
+        h2 { margin: 0 0 24px; color: #4a4536; }
+        h3 { color: var(--green); }
+        .field { margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #e5dcc4; }
+        label { display: block; margin: 16px 0 6px; font-weight: bold; }
+        input[type="text"], textarea { width: 100%; padding: 10px; border: 1px solid #bdb7a9; box-sizing: border-box; font: inherit; }
+        input[type="file"] { width: 100%; padding: 10px 0; font: inherit; }
+        button { width: 100%; padding: 11px; border: 0; background: var(--green); color: white; font: inherit; cursor: pointer; }
+        button:hover { background: #4b5840; }
+
+        .bio-editor {
+            width: 100%;
+            min-height: 120px;
+            padding: 10px;
+            border: 1px solid #bdb7a9;
+            box-sizing: border-box;
+            background: white;
+        }
+        .bio-editor:focus { outline: 2px solid var(--green); }
+        .bio-toolbar { margin-bottom: 6px; }
+        .bio-toolbar button {
+            width: auto; display: inline-block; padding: 4px 10px; margin-right: 6px;
+            background: #e5dcc4; color: var(--ink); font-size: 14px;
+        }
+        .bio-toolbar button.active { background: var(--green); color: white; }
+        .word-count { font-size: 13px; margin-top: 6px; color: #716d64; }
+        .word-count.out-of-range { color: var(--red); font-weight: bold; }
+
+        .errors { background: #fdecea; border: 1px solid #f5c2c0; color: var(--red);
+                  padding: 12px 16px; margin-bottom: 20px; }
+        .errors ul { margin: 0; padding-left: 20px; }
+
+        .field-error {
+            display: none;
+            color: var(--red);
+            font-size: 13px;
+            margin-top: 6px;
+            font-weight: bold;
+        }
+        .field-error.visible { display: block; }
+        input.invalid, .bio-editor.invalid { border-color: var(--red); }
+
+        #client-error-summary {
+            display: none;
+            background: #fdecea;
+            border: 1px solid #f5c2c0;
+            color: var(--red);
+            padding: 12px 16px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        #client-error-summary.visible { display: block; }
     </style>
 </head>
 <body>
+    <header><h1>SHCM Artist Bio Submission Form</h1></header>
     <div class="form-container">
-        <h2>Musician Profile Submission</h2>
+        <h2>Profile Submission Form</h2>
+
+        {% if errors %}
+        <div class="errors">
+            <ul>
+                {% for error in errors %}
+                <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <div id="client-error-summary">There are errors below. You can't submit until they're fixed.</div>
+
         <!-- Important: enctype is required for processing file uploads -->
-        <form action="/" method="POST" enctype="multipart/form-data">
+        <form action="/" method="POST" enctype="multipart/form-data" id="profile-form">
             <div class="field">
-                <label for="name">Full Professional Name</label>
-                <input type="text" id="name" name="name" required placeholder="e.g., Jane Doe">
+                <h3>Full Professional Name</h3>
+                <p>Type your name exactly as you want it displayed in the program. Resubmitting with the same name will overwrite your previous submission.</p>
+                <label for="name-prefix">Prefix (not required)</label>
+                <input type="text" id="name-prefix" name="prefix" placeholder="e.g., Mr.">
+                <label for="first-name">First Name (required)</label>
+                <input type="text" id="first-name" name="first-name" required placeholder="e.g., Debra">
+                <label for="middle-name">Middle Name (not required)</label>
+                <input type="text" id="middle-name" name="middle-name" placeholder="e.g., Scott">
+                <label for="last-name">Last Name (required)</label>
+                <input type="text" id="last-name" name="last-name" required placeholder="e.g., Obama">
+                <label for="suffix">Suffix (not required)</label>
+                <input type="text" id="suffix" name="suffix" placeholder="e.g., III">
+            </div>
+            <hr>
+            <div class="field">
+                <label for="headshot">High-Resolution Headshot to Accompany your Bio</label>
+                <input type="file" id="headshot" name="headshot" accept="image/png,image/jpeg,image/webp" required>
+                <p>Image must be of file type: .png, .jpg, .jpeg, .webp Image must be between 1MB and 10MB.</p>
+                <div class="field-error" id="headshot-error"></div>
             </div>
             <div class="field">
-                <label for="headshot">High-Resolution Headshot</label>
-                <input type="file" id="headshot" name="headshot" accept="image/*" required>
+                <label for="bio-editor">Performance Biography</label>
+                <div class="bio-toolbar">
+                    <button type="button" id="btn-italic" title="Italic"><i>I</i></button>
+                    <button type="button" id="btn-underline" title="Underline"><u>U</u></button>
+                </div>
+                <div id="bio-editor" class="bio-editor" contenteditable="true"
+                     data-placeholder="Paste a short biography for the program..."></div>
+                <input type="hidden" id="bio" name="bio">
+                <p>Bio should be between 50-150 words.</p>
+                <div class="word-count" id="word-count">0 words</div>
+                <div class="field-error" id="bio-error"></div>
             </div>
-            <div class="field">
-                <label for="bio">Performance Biography</label>
-                <textarea id="bio" name="bio" required placeholder="Write a short biography for the program..."></textarea>
-            </div>
-            <button type="submit">Submit to Playbill</button>
+            <button type="submit">Submit!</button>
         </form>
     </div>
+
+    <script>
+        const editor = document.getElementById('bio-editor');
+        const hiddenBio = document.getElementById('bio');
+        const wordCountEl = document.getElementById('word-count');
+        const bioErrorEl = document.getElementById('bio-error');
+        const headshotInput = document.getElementById('headshot');
+        const headshotErrorEl = document.getElementById('headshot-error');
+        const errorSummaryEl = document.getElementById('client-error-summary');
+        const form = document.getElementById('profile-form');
+
+        const MIN_WORDS = 50;
+        const MAX_WORDS = 150;
+        const MIN_IMAGE_BYTES = 1 * 1024 * 1024;
+        const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+        function showFieldError(el, message) {
+            el.textContent = message;
+            el.classList.add('visible');
+        }
+        function clearFieldError(el) {
+            el.textContent = '';
+            el.classList.remove('visible');
+        }
+
+        // Returns an error message string, or null if the image is fine.
+        function validateHeadshot() {
+            const file = headshotInput.files[0];
+            if (!file) {
+                headshotInput.classList.remove('invalid');
+                clearFieldError(headshotErrorEl);
+                return null; // "required" attribute handles the empty case
+            }
+            let message = null;
+            if (file.size < MIN_IMAGE_BYTES) {
+                message = `This image is too small (${(file.size / (1024 * 1024)).toFixed(2)}MB). It must be at least 1MB.`;
+            } else if (file.size > MAX_IMAGE_BYTES) {
+                message = `This image is too large (${(file.size / (1024 * 1024)).toFixed(2)}MB). It must be no more than 10MB.`;
+            }
+            if (message) {
+                headshotInput.classList.add('invalid');
+                showFieldError(headshotErrorEl, message);
+            } else {
+                headshotInput.classList.remove('invalid');
+                clearFieldError(headshotErrorEl);
+            }
+            return message;
+        }
+        headshotInput.addEventListener('change', validateHeadshot);
+
+        // Tags we allow through when the user pastes rich text (e.g. from
+        // Word or Google Docs). Everything else is unwrapped, keeping the
+        // text but dropping bold/font-size/font-family/etc.
+        const ALLOWED_TAGS = new Set(['I', 'EM', 'U', 'P', 'BR', '#text']);
+
+        function sanitizeNode(node) {
+            // Recursively strip disallowed tags/attributes, keeping text content.
+            const children = Array.from(node.childNodes);
+            for (const child of children) {
+                if (child.nodeType === Node.TEXT_NODE) continue;
+                sanitizeNode(child);
+                if (!ALLOWED_TAGS.has(child.tagName)) {
+                    // Unwrap: replace the element with its own children.
+                    while (child.firstChild) node.insertBefore(child.firstChild, child);
+                    node.removeChild(child);
+                } else {
+                    // Strip all attributes (kills style="font-weight:bold" etc.)
+                    while (child.attributes && child.attributes.length > 0) {
+                        child.removeAttribute(child.attributes[0].name);
+                    }
+                }
+            }
+        }
+
+        editor.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const html = e.clipboardData.getData('text/html');
+            const plain = e.clipboardData.getData('text/plain');
+            const temp = document.createElement('div');
+            if (html) {
+                temp.innerHTML = html;
+                sanitizeNode(temp);
+            } else {
+                temp.textContent = plain;
+            }
+            const selection = window.getSelection();
+            if (!selection.rangeCount) return;
+            const range = selection.getRangeAt(0);
+            range.deleteContents();
+            const frag = document.createDocumentFragment();
+            let node, lastNode;
+            while ((node = temp.firstChild)) {
+                lastNode = frag.appendChild(node);
+            }
+            range.insertNode(frag);
+            if (lastNode) {
+                range.setStartAfter(lastNode);
+                range.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }
+            validateBio();
+        });
+
+        document.getElementById('btn-italic').addEventListener('click', () => {
+            document.execCommand('italic');
+            editor.focus();
+        });
+        document.getElementById('btn-underline').addEventListener('click', () => {
+            document.execCommand('underline');
+            editor.focus();
+        });
+
+        // Returns an error message string, or null if the bio is fine.
+        function validateBio() {
+            const text = editor.textContent.trim();
+            const words = text.length ? text.split(/\s+/).length : 0;
+            wordCountEl.textContent = `${words} words`;
+            wordCountEl.classList.toggle('out-of-range', words < MIN_WORDS || words > MAX_WORDS);
+
+            let message = null;
+            if (words < MIN_WORDS) {
+                message = `Bio is too short (${words} words). It must be at least ${MIN_WORDS} words.`;
+            } else if (words > MAX_WORDS) {
+                message = `Bio is too long (${words} words). It must be no more than ${MAX_WORDS} words.`;
+            }
+            if (message) {
+                editor.classList.add('invalid');
+                showFieldError(bioErrorEl, message);
+            } else {
+                editor.classList.remove('invalid');
+                clearFieldError(bioErrorEl);
+            }
+            return message;
+        }
+        editor.addEventListener('input', validateBio);
+
+        form.addEventListener('submit', (e) => {
+            // Bold/font tags may still slip through from execCommand or edge
+            // cases in pasted markup; the server re-sanitizes authoritatively.
+            hiddenBio.value = editor.innerHTML;
+
+            const bioMessage = validateBio();
+            const headshotMessage = validateHeadshot();
+
+            if (bioMessage || headshotMessage) {
+                e.preventDefault();
+                errorSummaryEl.classList.add('visible');
+                errorSummaryEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } else {
+                errorSummaryEl.classList.remove('visible');
+            }
+        });
+    </script>
 </body>
 </html>

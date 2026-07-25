@@ -3,4 +3,11 @@ __pycache__/
 *.pyc
 .venv/
 env/
-static/uploads/
+static/
+assets/*
+!assets/SHCM CIrcle Logo.png
+testing_data/
+submissions.json
+seasonal_program.json
+instance/
+testing_data/

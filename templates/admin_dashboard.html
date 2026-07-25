@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Seasonal Program Dashboard</title>
+  <style>
+    :root { --cream: #f8f6f1; --gold: #b9a06a; --ink: #33302a; --green: #5c6b4f; --red: #8a3b2f; }
+    body { margin: 0; padding: 32px 16px; background: var(--cream); color: var(--ink); font-family: Georgia, serif; }
+    main { max-width: 760px; margin: auto; }
+    header { display: flex; justify-content: space-between; gap: 16px; align-items: start; border-bottom: 1px solid var(--gold); margin-bottom: 24px; }
+    h1 { margin: 0 0 8px; color: var(--green); }
+    .note { line-height: 1.5; }
+    .artist-row { display: flex; align-items: center; gap: 14px; padding: 15px 0; border-bottom: 1px solid #e5dcc4; }
+    .artist { display: flex; align-items: center; gap: 14px; flex: 1; cursor: pointer; }
+    .artist input { width: 20px; height: 20px; }
+    .artist strong, .artist span { display: block; }
+    .artist span { margin-top: 3px; color: #716d64; font-size: .9rem; }
+    .badge { display: inline-block; margin-left: 8px; padding: 2px 6px; color: white; background: var(--green); font: .72rem system-ui, sans-serif; text-transform: uppercase; letter-spacing: .7px; }
+    .actions { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 24px; }
+    .selection-controls { display: flex; gap: 20px; padding: 12px 0; border-bottom: 1px solid #e5dcc4; }
+    .selection-controls label { cursor: pointer; }
+    .selection-controls input { margin-right: 7px; }
+    button, .mobile-link { padding: 10px 15px; border: 0; background: var(--green); color: white; font: inherit; text-decoration: none; cursor: pointer; }
+    .logout { background: none; color: var(--ink); padding: 0; text-decoration: underline; }
+    .delete-form { flex-shrink: 0; }
+    .delete-btn { background: var(--red); padding: 8px 12px; font-size: .85rem; }
+
+    /* ---------- Save confirmation toast ---------- */
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--green);
+      color: white;
+      padding: 12px 22px;
+      border-radius: 4px;
+      font: 1rem Georgia, serif;
+      box-shadow: 0 6px 20px rgba(74, 69, 54, 0.25);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      z-index: 30;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .toast.error { background: var(--red); }
+    button:disabled { cursor: wait; opacity: .75; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Seasonal Program</h1>
+        <p class="note">Select the artists for this season. If present and selected, Dudley Raine and Nicole Brancato appear first as Leadership; all other selected artists are ordered alphabetically by last name.</p>
+      </div>
+      <form action="{{ url_for('admin_logout') }}" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="logout" type="submit">Log out</button>
+      </form>
+    </header>
+
+    <form method="post" id="lineup-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="selection-controls">
+        <label><input type="checkbox" data-selection-action="select">Select all</label>
+        <label><input type="checkbox" data-selection-action="deselect">Deselect all</label>
+      </div>
+      {% for candidate in candidates %}
+      <div class="artist-row">
+        <label class="artist">
+          <input type="checkbox" name="submission_ids" value="{{ candidate.id }}" {% if candidate.id in selected_ids %}checked{% endif %}>
+          <span>
+            <strong>{{ candidate.name }}{% if candidate.is_leadership %}<small class="badge">Leadership</small>{% endif %}</strong>
+            <span>Last name: {{ candidate.last_name or 'Not available' }}{% if candidate.updated_at %} · Updated {{ candidate.updated_at[:10] }}{% endif %}</span>
+          </span>
+        </label>
+        <button type="submit" class="delete-btn"
+                formaction="{{ url_for('admin_delete_submission', submission_id=candidate.id) }}"
+                onclick="return confirm('Delete {{ candidate.name }}\'s submission? This removes their photo, name, and bio from the site and cannot be undone. (Their files on Google Drive are not affected.)');">Delete</button>
+      </div>
+      {% else %}
+      <p>No artist submissions are available yet.</p>
+      {% endfor %}
+      <div class="selection-controls">
+        <label><input type="checkbox" data-selection-action="select">Select all</label>
+        <label><input type="checkbox" data-selection-action="deselect">Deselect all</label>
+      </div>
+      <div class="actions">
+        <button type="submit" id="save-button">Save seasonal lineup</button>
+        <a class="mobile-link" href="{{ url_for('mobile_artist_profiles') }}" target="_blank">View mobile program</a>
+      </div>
+    </form>
+  </main>
+
+  <div class="toast" id="save-toast" role="status" aria-live="polite">Saved</div>
+
+  <script>
+    const lineupForm = document.getElementById('lineup-form');
+    const saveButton = document.getElementById('save-button');
+    const toast = document.getElementById('save-toast');
+    const artistCheckboxes = lineupForm.querySelectorAll('input[name="submission_ids"]');
+    const selectionActions = lineupForm.querySelectorAll('[data-selection-action]');
+
+    selectionActions.forEach((control) => {
+      control.addEventListener('change', () => {
+        const shouldSelect = control.dataset.selectionAction === 'select';
+        artistCheckboxes.forEach((checkbox) => {
+          checkbox.checked = shouldSelect;
+        });
+        selectionActions.forEach((action) => {
+          action.checked = false;
+        });
+      });
+    });
+
+    function showToast(message, isError = false) {
+      toast.textContent = message;
+      toast.classList.toggle('error', isError);
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    lineupForm.addEventListener('submit', (event) => {
+      if (event.submitter !== saveButton) return;
+
+      saveButton.disabled = true;
+      saveButton.textContent = 'Saving...';
+    });
+
+    // The redirect reports whether the server was able to write the lineup.
+    // Remove its query parameter so refreshes do not repeat the message.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('saved') === '1') {
+      showToast('Lineup Saved!');
+      params.delete('saved');
+    } else if (params.get('saved') === '0') {
+      showToast('Could not be saved. Please try again.', true);
+      params.delete('saved');
+    }
+
+    const cleanUrl = window.location.pathname + (params.toString() ? `?${params}` : '');
+    window.history.replaceState({}, '', cleanUrl);
+  </script>
+</body>
+</html>
