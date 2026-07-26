@@ -2,6 +2,7 @@ import json
 import os
 import re
 import secrets
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 from functools import wraps
 
@@ -20,11 +21,20 @@ import io
 from PIL import Image, ImageOps
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
-from google.oauth2 import service_account
+import google.auth
 
 load_dotenv()
 
 app = Flask(__name__)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=os.getenv('SESSION_COOKIE_SECURE', 'false').lower() == 'true',
+)
+
+RATE_LIMIT_BURSTS = defaultdict(deque)
+RATE_LIMIT_WINDOW_SECONDS = 300
+RATE_LIMIT_MAX_REQUESTS = 5
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -68,8 +78,6 @@ MIN_BIO_WORDS = 50
 MAX_BIO_WORDS = 150
 
 # Deterministic bio sizing, computed in Python from the exact word count
-# before the PDF is ever rendered. We moved away from a JS-in-wkhtmltopdf
-# auto-shrink script: wkhtmltopdf's script execution/timing turned out to
 # be unreliable in practice, so a *known* word count mapping to a *known*
 # font size is far more trustworthy than a runtime measurement. Each tier
 # was sized to comfortably fit within the playbill's fixed content frame
@@ -218,6 +226,53 @@ def admin_required(view):
     return wrapped_view
 
 
+def get_client_ip():
+    forwarded_for = request.headers.get('X-Forwarded-For', '')
+    if forwarded_for:
+        return forwarded_for.split(',')[0].strip() or request.remote_addr or 'unknown'
+    return request.remote_addr or 'unknown'
+
+
+def is_rate_limited(endpoint, limit=RATE_LIMIT_MAX_REQUESTS, window_seconds=RATE_LIMIT_WINDOW_SECONDS):
+    bucket_key = f'{endpoint}:{get_client_ip()}'
+    bucket = RATE_LIMIT_BURSTS[bucket_key]
+    now = datetime.now(timezone.utc).timestamp()
+
+    while bucket and now - bucket[0] > window_seconds:
+        bucket.popleft()
+
+    if len(bucket) >= limit:
+        return True
+
+    bucket.append(now)
+    return False
+
+
+def require_admin_csrf():
+    submitted_token = request.form.get('csrf_token', '')
+    expected_token = session.get('csrf_token', '')
+    if not expected_token or not secrets.compare_digest(submitted_token, expected_token):
+        abort(400)
+
+
+def get_safe_upload_path(filename, slug):
+    base_name = secure_filename(slug or 'submission')
+    original_extension = os.path.splitext(secure_filename(filename or ''))[1].lower()
+    if not original_extension:
+        raise ValueError('Missing file extension for upload.')
+
+    extension = original_extension
+    if extension.lstrip('.') not in ALLOWED_EXTENSIONS:
+        raise ValueError('Invalid file type. Please upload a JPG, PNG, or WebP image.')
+
+    destination_name = f'{base_name}{extension}'
+    upload_dir = os.path.abspath(app.config['UPLOAD_FOLDER'])
+    destination = os.path.abspath(os.path.join(upload_dir, destination_name))
+    if os.path.commonpath([upload_dir, destination]) != upload_dir:
+        raise ValueError('Invalid upload path.')
+    return destination
+
+
 # ---------------------------------------------------------------------------
 # Validation helpers
 # ---------------------------------------------------------------------------
@@ -259,10 +314,11 @@ def count_words(html):
 
 # IMAGE PROCESSING - TO DRIVE AND TO MOBILE CONCERT PROGRAM SHEET
 
-# 1. SCOPES and Authentication Config
+# Drive API scope required for full folder and file creation
 SCOPES = ['https://www.googleapis.com/auth/drive']
-SERVICE_ACCOUNT_FILE = 'service_account.json'  # Path to your Google service account credentials file
-PARENT_DRIVE_FOLDER_ID = 'YOUR_MAIN_SUBMISSIONS_FOLDER_ID'  # The master folder ID where all artist folders go
+
+# Pull the Master Folder ID from environment variables (.env locally or Cloud Run env vars)
+PARENT_DRIVE_FOLDER_ID = os.getenv('PARENT_DRIVE_FOLDER_ID')
 
 def get_drive_service():
     """Authenticates using the service account and returns the Drive API client."""
@@ -345,12 +401,12 @@ def handle_artist_submission(file_storage, last_name, first_name, full_name, bio
     print("Processing local web-optimized thumbnail...")
     file_storage.stream.seek(0)
 
-    image = Image.open(file_storage.stream)
-    image = ImageOps.exif_transpose(image)
-    image = image.convert('RGB')
-
-    image.thumbnail(HEADSHOT_MAX_BOUNDS, resample=Image.Resampling.LANCZOS)
-    image.save(local_web_dest, format='JPEG', quality=85)
+    os.makedirs(os.path.dirname(local_web_dest), exist_ok=True)
+    with Image.open(file_storage.stream) as image:
+        image = ImageOps.exif_transpose(image)
+        image = image.convert('RGB')
+        image.thumbnail(HEADSHOT_MAX_BOUNDS, resample=Image.Resampling.LANCZOS)
+        image.save(local_web_dest, format='JPEG', quality=85)
     print("Submission pipeline completed successfully!")
 
     return drive_uploaded
@@ -362,6 +418,18 @@ def handle_artist_submission(file_storage, last_name, first_name, full_name, bio
 @app.route('/', methods=['GET', 'POST'])
 def musician_form():
     if request.method == 'POST':
+        if request.form.get('website'):
+            return render_template(
+                'form.html',
+                errors=['Your submission was blocked as a bot attempt.'],
+            ), 400
+
+        if is_rate_limited('musician_form'):
+            return render_template(
+                'form.html',
+                errors=['Too many submissions from this address. Please try again later.'],
+            ), 429
+
         errors = []
 
         prefix = (request.form.get('prefix') or '').strip()
@@ -402,8 +470,12 @@ def musician_form():
             return render_template('form.html', errors=errors)
 
         slug = slugify(name)
-        headshot_filename = f'{slug}.jpg'
-        headshot_path = os.path.join(app.config['UPLOAD_FOLDER'], headshot_filename)
+        try:
+            headshot_path = get_safe_upload_path(f'{slug}.jpg', slug)
+        except ValueError as exc:
+            return render_template('form.html', errors=[str(exc)])
+
+        headshot_filename = os.path.basename(headshot_path)
 
         # Call the new Drive pipeline, passing the names and bio data
         handle_artist_submission(
@@ -449,6 +521,10 @@ def admin_login():
     configured_password = os.getenv('ADMIN_PASSWORD')
 
     if request.method == 'POST':
+        if is_rate_limited('admin_login'):
+            error = 'Too many login attempts. Please try again later.'
+            return render_template('admin_login.html', error=error), 429
+
         if not configured_password:
             error = 'The administrator password has not been configured.'
         elif (
@@ -472,10 +548,7 @@ def admin_dashboard():
     season_program = load_season_program()
 
     if request.method == 'POST':
-        if not secrets.compare_digest(
-            request.form.get('csrf_token', ''), session.get('csrf_token', '')
-        ):
-            abort(400)
+        require_admin_csrf()
 
         selected_ids = [
             submission_id
@@ -518,10 +591,7 @@ def admin_dashboard():
 @app.post('/admin/delete/<submission_id>')
 @admin_required
 def admin_delete_submission(submission_id):
-    if not secrets.compare_digest(
-        request.form.get('csrf_token', ''), session.get('csrf_token', '')
-    ):
-        abort(400)
+    require_admin_csrf()
 
     submissions = load_submissions()
     submission = submissions.get(submission_id)
@@ -556,10 +626,7 @@ def admin_delete_submission(submission_id):
 @app.post('/admin/logout')
 @admin_required
 def admin_logout():
-    if not secrets.compare_digest(
-        request.form.get('csrf_token', ''), session.get('csrf_token', '')
-    ):
-        abort(400)
+    require_admin_csrf()
     session.clear()
     return redirect(url_for('admin_login'))
 
