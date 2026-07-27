@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ audience }} Sign In</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f8f6f1; color: #33302a; font-family: Georgia, serif; }
+    main { width: min(100% - 32px, 420px); padding: 32px; border: 1px solid #dccfa8; background: white; box-shadow: 0 6px 20px rgba(74, 69, 54, .08); }
+    h1 { margin-top: 0; color: #4a4536; }
+    p { line-height: 1.5; }
+    button { width: 100%; margin-top: 22px; padding: 11px; border: 0; background: #5c6b4f; color: white; font: inherit; cursor: pointer; }
+    button:disabled { cursor: wait; opacity: .7; }
+    .error { display: none; padding: 10px; background: #fdecea; color: #611a15; }
+    .error.show { display: block; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{{ audience }}</h1>
+    <p>{{ message }}</p>
+    {% if firebase_config %}
+    <p class="error" id="login-error" role="alert"></p>
+    <button type="button" id="google-login">Continue with Google</button>
+    {% else %}
+    <p class="error show">Firebase Authentication has not been configured. Please contact the site administrator.</p>
+    {% endif %}
+  </main>
+
+  {% if firebase_config %}
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
+    import { getAuth, GoogleAuthProvider, signInWithPopup } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
+
+    const button = document.getElementById('google-login');
+    const error = document.getElementById('login-error');
+    const auth = getAuth(initializeApp({{ firebase_config | tojson }}));
+
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      button.textContent = 'Signing in...';
+      error.classList.remove('show');
+
+      try {
+        const result = await signInWithPopup(auth, new GoogleAuthProvider());
+        const idToken = await result.user.getIdToken();
+        const response = await fetch('{{ url_for("create_auth_session") }}', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ idToken, next: {{ next_url | tojson }} }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Sign-in failed.');
+        window.location.assign(data.redirect);
+      } catch (exception) {
+        error.textContent = exception.message || 'Sign-in failed. Please try again.';
+        error.classList.add('show');
+        button.disabled = false;
+        button.textContent = 'Continue with Google';
+      }
+    });
+  </script>
+  {% endif %}
+</body>
+</html>

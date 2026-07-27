@@ -60,6 +60,19 @@ def _parse_leadership_names(raw):
 
 
 LEADERSHIP_NAMES = _parse_leadership_names(os.getenv('LEADERSHIP_NAMES'))
+ADMIN_EMAILS = {
+    email.strip().casefold()
+    for email in os.getenv('ADMIN_EMAILS', '').split(',')
+    if email.strip()
+}
+
+FIREBASE_WEB_CONFIG = {
+    'apiKey': os.getenv('FIREBASE_API_KEY'),
+    'authDomain': os.getenv('FIREBASE_AUTH_DOMAIN'),
+    'projectId': os.getenv('FIREBASE_PROJECT_ID'),
+    'appId': os.getenv('FIREBASE_APP_ID'),
+}
+FIREBASE_WEB_CONFIGURED = all(FIREBASE_WEB_CONFIG.values())
 
 if not LEADERSHIP_NAMES:
     print('WARNING: LEADERSHIP_NAMES is not set (or empty) in .env — '
@@ -197,6 +210,52 @@ def admin_required(view):
             return redirect(url_for('admin_login'))
         return view(*args, **kwargs)
     return wrapped_view
+
+
+def artist_required(view):
+    @wraps(view)
+    def wrapped_view(*args, **kwargs):
+        if not session.get('user_email') or not session.get('email_verified'):
+            return redirect(url_for('artist_login', next=request.path))
+        return view(*args, **kwargs)
+    return wrapped_view
+
+
+def safe_next_url(value, default):
+    if not value or not value.startswith('/') or value.startswith('//'):
+        return default
+    return value
+
+
+def verify_firebase_id_token(id_token):
+    if not id_token:
+        raise ValueError('Missing sign-in token.')
+
+    try:
+        import firebase_admin
+        from firebase_admin import auth, credentials
+
+        try:
+            firebase_admin.get_app()
+        except ValueError:
+            credentials_path = os.getenv(
+                'FIREBASE_CREDENTIALS_PATH', os.getenv('GOOGLE_CREDENTIALS_PATH', '')
+            )
+            if not credentials_path:
+                raise ValueError('Firebase server credentials are not configured.')
+            firebase_admin.initialize_app(credentials.Certificate(credentials_path))
+
+        claims = auth.verify_id_token(id_token, check_revoked=True)
+    except ValueError:
+        raise
+    except Exception as exc:
+        app.logger.warning('Firebase sign-in verification failed: %s', exc)
+        raise ValueError('Your sign-in could not be verified. Please try again.') from exc
+
+    email = claims.get('email', '').strip().casefold()
+    if not email or not claims.get('email_verified'):
+        raise ValueError('Please sign in with a verified email address.')
+    return claims, email
 
 
 def get_client_ip():
@@ -388,7 +447,8 @@ def handle_artist_submission(file_storage, last_name, first_name, full_name, bio
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
-@app.route('/', methods=['GET', 'POST'])
+@app.route('/form', methods=['GET', 'POST'])
+@artist_required
 def musician_form():
     if request.method == 'POST':
         if request.form.get('website'):
@@ -476,39 +536,63 @@ def musician_form():
             "headshot have been saved.</h3></div>"
         )
 
-    return render_template('form.html', errors=None)
+    return render_template('form.html', errors=None, user_email=session['user_email'])
 
 
-@app.route('/mobile')
+@app.route('/')
 def mobile_artist_profiles():
     return render_template('mobile_template.html')
 
 
-@app.route('/admin/login', methods=['GET', 'POST'])
+@app.get('/form/login')
+def artist_login():
+    return render_template(
+        'firebase_login.html',
+        firebase_config=FIREBASE_WEB_CONFIG if FIREBASE_WEB_CONFIGURED else None,
+        next_url=safe_next_url(request.args.get('next'), url_for('musician_form')),
+        audience='Artist Submission',
+        message='Sign in with Google to submit or update your artist information.',
+    )
+
+
+@app.get('/admin/login')
 def admin_login():
-    error = None
-    configured_username = os.getenv('ADMIN_USERNAME', 'admin')
-    configured_password = os.getenv('ADMIN_PASSWORD')
+    return render_template(
+        'firebase_login.html',
+        firebase_config=FIREBASE_WEB_CONFIG if FIREBASE_WEB_CONFIGURED else None,
+        next_url=url_for('admin_dashboard'),
+        audience='Program Admin',
+        message='Sign in with an approved Google account to manage the seasonal lineup.',
+    )
 
-    if request.method == 'POST':
-        if is_rate_limited('admin_login'):
-            error = 'Too many login attempts. Please try again later.'
-            return render_template('admin_login.html', error=error), 429
 
-        if not configured_password:
-            error = 'The administrator password has not been configured.'
-        elif (
-            request.form.get('username', '') == configured_username
-            and secrets.compare_digest(request.form.get('password', ''), configured_password)
-        ):
-            session.clear()
-            session['is_admin'] = True
-            session['csrf_token'] = secrets.token_urlsafe(32)
-            return redirect(url_for('admin_dashboard'))
-        else:
-            error = 'Invalid username or password.'
+@app.post('/auth/session')
+def create_auth_session():
+    data = request.get_json(silent=True) or {}
+    next_url = safe_next_url(data.get('next'), url_for('musician_form'))
 
-    return render_template('admin_login.html', error=error)
+    try:
+        claims, email = verify_firebase_id_token(data.get('idToken'))
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 401
+
+    is_admin_login = next_url == url_for('admin_dashboard')
+    if is_admin_login and email not in ADMIN_EMAILS:
+        return jsonify({'error': 'This Google account is not approved for admin access.'}), 403
+
+    session.clear()
+    session['user_uid'] = claims['uid']
+    session['user_email'] = email
+    session['email_verified'] = True
+    session['is_admin'] = is_admin_login
+    session['csrf_token'] = secrets.token_urlsafe(32)
+    return jsonify({'redirect': next_url})
+
+
+@app.post('/auth/logout')
+def auth_logout():
+    session.clear()
+    return ('', 204)
 
 
 @app.route('/admin', methods=['GET', 'POST'])
