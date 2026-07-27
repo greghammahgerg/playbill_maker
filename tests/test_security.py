@@ -40,14 +40,11 @@ class SecurityRegressionTests(unittest.TestCase):
         self.original_data_file = playbill_maker.DATA_FILE
         self.original_season_file = playbill_maker.SEASON_FILE
         self.original_upload_folder = playbill_maker.UPLOAD_FOLDER
-        self.original_program_folder = playbill_maker.PROGRAM_FOLDER
 
         playbill_maker.DATA_FILE = os.path.join(self.tempdir.name, 'submissions.json')
         playbill_maker.SEASON_FILE = os.path.join(self.tempdir.name, 'seasonal_program.json')
         playbill_maker.UPLOAD_FOLDER = os.path.join(self.tempdir.name, 'uploads')
-        playbill_maker.PROGRAM_FOLDER = os.path.join(self.tempdir.name, 'programs')
         os.makedirs(playbill_maker.UPLOAD_FOLDER, exist_ok=True)
-        os.makedirs(playbill_maker.PROGRAM_FOLDER, exist_ok=True)
 
         playbill_maker.app.config['UPLOAD_FOLDER'] = playbill_maker.UPLOAD_FOLDER
         playbill_maker.app.config['TESTING'] = True
@@ -57,7 +54,6 @@ class SecurityRegressionTests(unittest.TestCase):
         playbill_maker.DATA_FILE = self.original_data_file
         playbill_maker.SEASON_FILE = self.original_season_file
         playbill_maker.UPLOAD_FOLDER = self.original_upload_folder
-        playbill_maker.PROGRAM_FOLDER = self.original_program_folder
         playbill_maker.app.config['UPLOAD_FOLDER'] = self.original_upload_folder
 
     def test_honeypot_field_rejects_public_submission(self):

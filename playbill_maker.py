@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from functools import wraps
 
 import bleach
-import pdfkit
 from flask import (
     Flask, abort, jsonify, redirect, render_template, request, send_from_directory,
     session, url_for,
@@ -40,7 +39,6 @@ RATE_LIMIT_MAX_REQUESTS = 5
 # Configuration
 # ---------------------------------------------------------------------------
 UPLOAD_FOLDER = os.path.join('static', 'uploads')
-PROGRAM_FOLDER = os.path.join('static', 'programs')
 DATA_FILE = os.path.join('instance', 'submissions.json')
 SEASON_FILE = os.path.join('instance', 'seasonal_program.json')
 
@@ -77,28 +75,8 @@ MAX_IMAGE_BYTES = 10 * 1024 * 1024       # 10 MB
 MIN_BIO_WORDS = 50
 MAX_BIO_WORDS = 150
 
-# Deterministic bio sizing, computed in Python from the exact word count
-# be unreliable in practice, so a *known* word count mapping to a *known*
-# font size is far more trustworthy than a runtime measurement. Each tier
-# was sized to comfortably fit within the playbill's fixed content frame
-# (see playbill_template.html); the frame's overflow:hidden is still kept
-# as an absolute backstop in case of an unusually long name.
-BIO_SIZE_TIERS = [
-    (90, 'bio-full'),      # up to 90 words: 10.5pt
-    (120, 'bio-compact'),  # 91-120 words: 9.25pt
-    (150, 'bio-tight'),    # 121-150 words: 8.25pt
-]
-
-
-def bio_size_class(word_count):
-    for max_words, css_class in BIO_SIZE_TIERS:
-        if word_count <= max_words:
-            return css_class
-    return BIO_SIZE_TIERS[-1][1]  # fall back to the tightest tier
-
 # Uploaded photos retain their original proportions. This bounds the saved
-# web image without cropping it, while keeping enough resolution for the
-# slightly larger playbill photo area.
+# web image without cropping it, while retaining enough detail for display.
 HEADSHOT_MAX_BOUNDS = (1000, 1000)
 
 # Drop the logo file here (relative to this app.py). Matches the path you
@@ -117,20 +95,15 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # hard cap; real check is p
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', secrets.token_urlsafe(32))
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(PROGRAM_FOLDER, exist_ok=True)
 os.makedirs('instance', exist_ok=True)
 os.makedirs('assets', exist_ok=True)
 
 if not os.path.exists(LOGO_PATH):
     print(
         f'WARNING: logo not found at "{LOGO_PATH}". '
-        f'Programs will still generate, just without the logo. '
+        f'The site will still work, just without the logo. '
         f'Save your file there (or update LOGO_PATH) to include it.'
     )
-
-# Point PDFKit directly to the default Windows installation folder path
-path_to_wkhtmltopdf = r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
-pdf_config = pdfkit.configuration(wkhtmltopdf=path_to_wkhtmltopdf)
 
 
 # ---------------------------------------------------------------------------
@@ -497,9 +470,6 @@ def musician_form():
             'updated_at': datetime.now(timezone.utc).isoformat(),
         }
         save_submissions(submissions)
-
-        abs_image_path = os.path.abspath(headshot_path)
-        
 
         return (
             "<div style='text-align:center;'><h3>Success! Your info and "
