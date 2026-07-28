@@ -17,10 +17,12 @@ from dotenv import load_dotenv
 
 
 import io
-from PIL import Image, ImageOps
+
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import google.auth
+
+
 
 load_dotenv()
 
@@ -41,6 +43,9 @@ RATE_LIMIT_MAX_REQUESTS = 5
 UPLOAD_FOLDER = os.path.join('static', 'uploads')
 DATA_FILE = os.path.join('instance', 'submissions.json')
 SEASON_FILE = os.path.join('instance', 'seasonal_program.json')
+
+# Google Drive Credentials File Path
+SERVICE_ACCOUNT_FILE = os.getenv('GOOGLE_CREDENTIALS_PATH', 'credentials.json')
 
 def _parse_leadership_names(raw):
     """Parse 'First|Last,First|Last' from the LEADERSHIP_NAMES env var
@@ -354,6 +359,8 @@ PARENT_DRIVE_FOLDER_ID = os.getenv('PARENT_DRIVE_FOLDER_ID')
 
 def get_drive_service():
     """Authenticates using the service account and returns the Drive API client."""
+    if not os.path.exists(SERVICE_ACCOUNT_FILE):
+        raise FileNotFoundError(f"Service account file missing at: {SERVICE_ACCOUNT_FILE}")
     creds = service_account.Credentials.from_service_account_file(
         SERVICE_ACCOUNT_FILE, scopes=SCOPES
     )
@@ -717,4 +724,6 @@ def artist_data():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Only turns on debug mode if FLASK_DEBUG=true is in your .env file
+    is_debug = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
+    app.run(debug=is_debug)
