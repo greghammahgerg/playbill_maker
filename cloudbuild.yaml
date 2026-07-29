@@ -7,6 +7,11 @@ steps:
       - --builder
       - gcr.io/buildpacks/builder
 
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - gcr.io/shcm-app-1/github.com/greghammahgerg/playbill_maker:$COMMIT_SHA
+
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: gcloud
     args:
@@ -15,9 +20,6 @@ steps:
       - playbill-maker
       - --image=gcr.io/shcm-app-1/github.com/greghammahgerg/playbill_maker:$COMMIT_SHA
       - --region=us-east1
-
-images:
-  - gcr.io/shcm-app-1/github.com/greghammahgerg/playbill_maker:$COMMIT_SHA
 
 options:
   logging: CLOUD_LOGGING_ONLY
