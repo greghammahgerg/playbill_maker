@@ -1,0 +1,23 @@
+steps:
+  - name: gcr.io/k8s-skaffold/pack
+    args:
+      - pack
+      - build
+      - gcr.io/shcm-app-1/github.com/greghammahgerg/playbill_maker:$COMMIT_SHA
+      - --builder
+      - gcr.io/buildpacks/builder
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - playbill-maker
+      - --image=gcr.io/shcm-app-1/github.com/greghammahgerg/playbill_maker:$COMMIT_SHA
+      - --region=us-east1
+
+images:
+  - gcr.io/shcm-app-1/github.com/greghammahgerg/playbill_maker:$COMMIT_SHA
+
+options:
+  logging: CLOUD_LOGGING_ONLY
