@@ -24,6 +24,7 @@ import google.auth
 
 
 
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -243,12 +244,7 @@ def verify_firebase_id_token(id_token):
         try:
             firebase_admin.get_app()
         except ValueError:
-            credentials_path = os.getenv(
-                'FIREBASE_CREDENTIALS_PATH', os.getenv('GOOGLE_CREDENTIALS_PATH', '')
-            )
-            if not credentials_path:
-                raise ValueError('Firebase server credentials are not configured.')
-            firebase_admin.initialize_app(credentials.Certificate(credentials_path))
+            firebase_admin.initialize_app()
 
         claims = auth.verify_id_token(id_token, check_revoked=True)
     except ValueError:
@@ -329,8 +325,11 @@ def get_file_size(file_storage):
 def sanitize_bio_html(raw_html):
     """Keep italics/underline/paragraph structure, strip everything else
     (bold, font tags, inline styles/sizes) while preserving the text."""
+    # Normalize non-breaking spaces (common from rich-text editors) to
+    # regular spaces before cleaning, so they don't leak into output.
+    raw_html = (raw_html or '').replace('&nbsp;', ' ').replace('\xa0', ' ')
     cleaned = bleach.clean(
-        raw_html or '',
+        raw_html,
         tags=ALLOWED_BIO_TAGS,
         attributes=ALLOWED_BIO_ATTRS,
         strip=True,
@@ -358,22 +357,19 @@ SCOPES = ['https://www.googleapis.com/auth/drive']
 PARENT_DRIVE_FOLDER_ID = os.getenv('PARENT_DRIVE_FOLDER_ID')
 
 def get_drive_service():
-    """Authenticates using the service account and returns the Drive API client."""
-    if not os.path.exists(SERVICE_ACCOUNT_FILE):
-        raise FileNotFoundError(f"Service account file missing at: {SERVICE_ACCOUNT_FILE}")
-    creds = service_account.Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE, scopes=SCOPES
-    )
+    """Authenticates using Application Default Credentials and returns the Drive API client."""
+    creds, _ = google.auth.default(scopes=SCOPES)
     return build('drive', 'v3', credentials=creds)
 
 def create_gdrive_folder(service, folder_name, parent_id):
-    """Creates a new folder in Google Drive and returns its unique ID."""
     file_metadata = {
         'name': folder_name,
         'mimeType': 'application/vnd.google-apps.folder',
         'parents': [parent_id]
     }
-    folder = service.files().create(body=file_metadata, fields='id').execute()
+    folder = service.files().create(
+        body=file_metadata, fields='id', supportsAllDrives=True
+    ).execute()
     return folder.get('id')
 
 def handle_artist_submission(file_storage, last_name, first_name, full_name, bio_html, local_web_dest):
@@ -411,7 +407,7 @@ def handle_artist_submission(file_storage, last_name, first_name, full_name, bio
         media_img = MediaIoBaseUpload(file_storage.stream, mimetype=file_storage.mimetype, resumable=True)
         img_metadata = {'name': drive_image_filename, 'parents': [artist_folder_id]}
 
-        service.files().create(body=img_metadata, media_body=media_img, fields='id').execute()
+        service.files().create(body=img_metadata, media_body=media_img, fields='id', supportsAllDrives=True).execute()
 
         # -----------------------------------------------------------------
         # STEP 3: Upload Text File (Name & Bio) to Drive
@@ -425,7 +421,7 @@ def handle_artist_submission(file_storage, last_name, first_name, full_name, bio
         media_text = MediaIoBaseUpload(text_bytes, mimetype='text/plain', resumable=True)
         text_metadata = {'name': drive_text_filename, 'parents': [artist_folder_id]}
 
-        service.files().create(body=text_metadata, media_body=media_text, fields='id').execute()
+        service.files().create(body=text_metadata, media_body=media_text, fields='id', supportsAllDrives=True).execute()
 
         drive_uploaded = True
         print("Drive upload completed successfully.")
