@@ -20,6 +20,7 @@
         input[type="file"] { width: 100%; padding: 10px 0; font: inherit; }
         button { width: 100%; padding: 11px; border: 0; background: var(--green); color: white; font: inherit; cursor: pointer; }
         button:hover { background: #4b5840; }
+        button:disabled { background: #a39d8c; cursor: wait; }
 
         .bio-editor {
             width: 100%;
@@ -261,22 +262,26 @@
         }
         editor.addEventListener('input', validateBio);
 
-        form.addEventListener('submit', (e) => {
-            // Bold/font tags may still slip through from execCommand or edge
-            // cases in pasted markup; the server re-sanitizes authoritatively.
-            hiddenBio.value = editor.innerHTML;
+const submitButton = form.querySelector('button[type="submit"]');
 
-            const bioMessage = validateBio();
-            const headshotMessage = validateHeadshot();
+form.addEventListener('submit', (e) => {
+    // Bold/font tags may still slip through from execCommand or edge
+    // cases in pasted markup; the server re-sanitizes authoritatively.
+    hiddenBio.value = editor.innerHTML;
 
-            if (bioMessage || headshotMessage) {
-                e.preventDefault();
-                errorSummaryEl.classList.add('visible');
-                errorSummaryEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            } else {
-                errorSummaryEl.classList.remove('visible');
-            }
-        });
+    const bioMessage = validateBio();
+    const headshotMessage = validateHeadshot();
+
+    if (bioMessage || headshotMessage) {
+        e.preventDefault();
+        errorSummaryEl.classList.add('visible');
+        errorSummaryEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+        errorSummaryEl.classList.remove('visible');
+        submitButton.disabled = true;
+        submitButton.textContent = 'Submitting...';
+    }
+});
     </script>
 </body>
 </html>
