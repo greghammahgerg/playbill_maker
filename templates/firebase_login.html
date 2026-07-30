@@ -29,16 +29,19 @@
   {% if firebase_config %}
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
-    import {
-      getAuth,
-      GoogleAuthProvider,
-      signInWithRedirect,
-      getRedirectResult,
-    } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithRedirect,
+  getRedirectResult,
+  setPersistence,
+  browserLocalPersistence,
+} from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
 
     const button = document.getElementById('google-login');
     const error = document.getElementById('login-error');
     const auth = getAuth(initializeApp({{ firebase_config | tojson }}));
+    await setPersistence(auth, browserLocalPersistence);
     const nextUrl = {{ next_url | tojson }};
 
     function showError(message) {
