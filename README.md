@@ -17,6 +17,11 @@ FIREBASE_PROJECT_ID=
 FIREBASE_APP_ID=
 FIREBASE_CREDENTIALS_PATH=path/to/firebase-service-account.json
 ADMIN_EMAILS=admin-one@example.com,admin-two@example.com
+SIGNING_SERVICE_ACCOUNT=drive-uploader@shcm-app-1.iam.gserviceaccount.com
 ```
 
 `FIREBASE_CREDENTIALS_PATH` must point to a Firebase service-account key for the same Firebase project as the web configuration. The server verifies each Firebase ID token before creating a session; a missing or unverified email cannot access or submit `/form`.
+
+## Headshot storage
+
+Headshots are saved to the `shcm-app-1-headshots` Cloud Storage bucket. The service account running Cloud Run needs `roles/storage.objectUser` on that bucket. The account running Cloud Run must also have `roles/iam.serviceAccountTokenCreator` on the service account named by `SIGNING_SERVICE_ACCOUNT`, so it can create signed read URLs for the public directory.

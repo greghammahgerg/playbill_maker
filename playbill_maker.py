@@ -45,6 +45,10 @@ RATE_LIMIT_MAX_REQUESTS = 5
 # Configuration
 # ---------------------------------------------------------------------------
 HEADSHOT_BUCKET = 'shcm-app-1-headshots'
+SIGNING_SERVICE_ACCOUNT = os.getenv(
+    'SIGNING_SERVICE_ACCOUNT',
+    'drive-uploader@shcm-app-1.iam.gserviceaccount.com',
+)
 
 UPLOAD_FOLDER = os.path.join('static', 'uploads')
 DATA_FILE = os.path.join('instance', 'submissions.json')
@@ -146,11 +150,12 @@ def get_db():
     return _firestore_client
 
 def _signing_credentials():
-    source_creds, _ = google.auth.default()
-    target_email = getattr(source_creds, 'service_account_email', None) or 'drive-uploader@shcm-app-1.iam.gserviceaccount.com'
+    source_creds, _ = google.auth.default(
+        scopes=['https://www.googleapis.com/auth/cloud-platform']
+    )
     return impersonated_credentials.Credentials(
         source_credentials=source_creds,
-        target_principal=target_email,
+        target_principal=SIGNING_SERVICE_ACCOUNT,
         target_scopes=['https://www.googleapis.com/auth/cloud-platform'],
     )
 
