@@ -3,7 +3,7 @@ import os
 import re
 import secrets
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from functools import wraps
 
 import bleach
@@ -23,6 +23,9 @@ from googleapiclient.http import MediaIoBaseUpload
 import google.auth
 from google.cloud import firestore
 
+from google.cloud import storage
+from google.auth import impersonated_credentials
+
 
 
 load_dotenv()
@@ -41,6 +44,8 @@ RATE_LIMIT_MAX_REQUESTS = 5
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+HEADSHOT_BUCKET = 'shcm-app-1-headshots'
+
 UPLOAD_FOLDER = os.path.join('static', 'uploads')
 DATA_FILE = os.path.join('instance', 'submissions.json')
 SEASON_FILE = os.path.join('instance', 'seasonal_program.json')
@@ -139,6 +144,25 @@ def get_db():
     if _firestore_client is None:
         _firestore_client = firestore.Client()
     return _firestore_client
+
+def _signing_credentials():
+    source_creds, _ = google.auth.default()
+    target_email = getattr(source_creds, 'service_account_email', None) or 'drive-uploader@shcm-app-1.iam.gserviceaccount.com'
+    return impersonated_credentials.Credentials(
+        source_credentials=source_creds,
+        target_principal=target_email,
+        target_scopes=['https://www.googleapis.com/auth/cloud-platform'],
+    )
+
+def get_signed_url(blob_name, minutes=60):
+    client = storage.Client()
+    blob = client.bucket(HEADSHOT_BUCKET).blob(blob_name)
+    return blob.generate_signed_url(
+        version='v4', expiration=timedelta(minutes=minutes),
+        method='GET', credentials=_signing_credentials(),
+    )
+
+
 
 def load_submissions():
     db = get_db()
@@ -451,15 +475,18 @@ def handle_artist_submission(file_storage, last_name, first_name, full_name, bio
     # -----------------------------------------------------------------
     # STEP 4: Process Local Web-Optimized Thumbnail
     # -----------------------------------------------------------------
-    print("Processing local web-optimized thumbnail...")
+    print("Uploading web-optimized thumbnail to bucket...")
     file_storage.stream.seek(0)
-
-    os.makedirs(os.path.dirname(local_web_dest), exist_ok=True)
     with Image.open(file_storage.stream) as image:
         image = ImageOps.exif_transpose(image)
         image = image.convert('RGB')
         image.thumbnail(HEADSHOT_MAX_BOUNDS, resample=Image.Resampling.LANCZOS)
-        image.save(local_web_dest, format='JPEG', quality=85)
+        buffer = io.BytesIO()
+        image.save(buffer, format='JPEG', quality=85)
+        buffer.seek(0)
+
+    blob_name = os.path.basename(local_web_dest)
+    storage.Client().bucket(HEADSHOT_BUCKET).blob(blob_name).upload_from_file(buffer, content_type='image/jpeg')
     print("Submission pipeline completed successfully!")
 
     return drive_uploaded
@@ -720,10 +747,7 @@ def artist_data():
             'name': submission.get('name', ''),
             'last_name': inferred_last_name(submission),
             'bio_html': submission.get('bio_html', ''),
-            'image_url': (
-                url_for('static', filename=f'uploads/{headshot_filename}')
-                if headshot_filename else None
-            ),
+            'image_url': get_signed_url(headshot_filename) if headshot_filename else None,
         })
 
     return jsonify(artists)
