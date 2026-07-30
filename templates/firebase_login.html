@@ -68,6 +68,7 @@ import {
     button.textContent = 'Checking sign-in status...';
     getRedirectResult(auth)
       .then(async (result) => {
+        console.log('getRedirectResult resolved:', result);
         if (!result) {
           // Not returning from a redirect -- normal first page load.
           button.disabled = false;
