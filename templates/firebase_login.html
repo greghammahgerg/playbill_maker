@@ -26,38 +26,65 @@
     <p class="error show">Firebase Authentication has not been configured. Please contact the site administrator.</p>
     {% endif %}
   </main>
-
   {% if firebase_config %}
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
-    import { getAuth, GoogleAuthProvider, signInWithPopup } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
+    import {
+      getAuth,
+      GoogleAuthProvider,
+      signInWithRedirect,
+      getRedirectResult,
+    } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
 
     const button = document.getElementById('google-login');
     const error = document.getElementById('login-error');
     const auth = getAuth(initializeApp({{ firebase_config | tojson }}));
+    const nextUrl = {{ next_url | tojson }};
+
+    function showError(message) {
+      error.textContent = message || 'Sign-in failed. Please try again.';
+      error.classList.add('show');
+      button.disabled = false;
+      button.textContent = 'Continue with Google';
+    }
+
+    async function completeSession(idToken) {
+      const response = await fetch('{{ url_for("create_auth_session") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ idToken, next: nextUrl }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Sign-in failed.');
+      window.location.assign(data.redirect);
+    }
+
+    // On page load, check whether we're returning from a redirect sign-in.
+    button.disabled = true;
+    button.textContent = 'Checking sign-in status...';
+    getRedirectResult(auth)
+      .then(async (result) => {
+        if (!result) {
+          // Not returning from a redirect -- normal first page load.
+          button.disabled = false;
+          button.textContent = 'Continue with Google';
+          return;
+        }
+        button.textContent = 'Signing in...';
+        const idToken = await result.user.getIdToken();
+        await completeSession(idToken);
+      })
+      .catch((exception) => showError(exception.message));
 
     button.addEventListener('click', async () => {
       button.disabled = true;
-      button.textContent = 'Signing in...';
+      button.textContent = 'Redirecting to Google...';
       error.classList.remove('show');
-
       try {
-        const result = await signInWithPopup(auth, new GoogleAuthProvider());
-        const idToken = await result.user.getIdToken();
-        const response = await fetch('{{ url_for("create_auth_session") }}', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ idToken, next: {{ next_url | tojson }} }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Sign-in failed.');
-        window.location.assign(data.redirect);
+        await signInWithRedirect(auth, new GoogleAuthProvider());
       } catch (exception) {
-        error.textContent = exception.message || 'Sign-in failed. Please try again.';
-        error.classList.add('show');
-        button.disabled = false;
-        button.textContent = 'Continue with Google';
+        showError(exception.message);
       }
     });
   </script>
