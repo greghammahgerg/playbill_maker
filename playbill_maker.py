@@ -21,7 +21,7 @@ import io
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import google.auth
-
+from google.cloud import firestore
 
 
 
@@ -130,28 +130,46 @@ if not os.path.exists(LOGO_PATH):
 # This is what makes a second submission from the same person overwrite
 # the first instead of piling up new files.
 # ---------------------------------------------------------------------------
+
+_firestore_client = None
+
+def get_db():
+    """Lazily create a single shared Firestore client for the app."""
+    global _firestore_client
+    if _firestore_client is None:
+        _firestore_client = firestore.Client()
+    return _firestore_client
+
 def load_submissions():
-    if not os.path.exists(DATA_FILE):
-        return {}
-    with open(DATA_FILE, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    db = get_db()
+    docs = db.collection('submissions').stream()
+    return {doc.id: doc.to_dict() for doc in docs}
 
+def get_submission(slug):
+    """Fetch a single artist's submission, or None if it doesn't exist."""
+    doc = get_db().collection('submissions').document(slug).get()
+    return doc.to_dict() if doc.exists else None
 
-def save_submissions(data):
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2)
+def save_submission(slug, submission):
+    """Write/overwrite exactly one artist's document. Safe under
+    concurrent submissions from different artists -- each write only
+    touches its own document, so simultaneous submissions can't
+    clobber each other."""
+    get_db().collection('submissions').document(slug).set(submission)
 
+def delete_submission(slug):
+    get_db().collection('submissions').document(slug).delete()
 
 def load_season_program():
-    if not os.path.exists(SEASON_FILE):
-        return {'selected_submission_ids': []}
-    with open(SEASON_FILE, 'r', encoding='utf-8') as f:
-        return json.load(f)
-
+    db = get_db()
+    doc = db.collection('season_program').document('current').get()
+    if doc.exists:
+        return doc.to_dict()
+    return {'selected_submission_ids': []}
 
 def save_season_program(data):
-    with open(SEASON_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2)
+    db = get_db()
+    db.collection('season_program').document('current').set(data)
 
 
 def slugify(name):
@@ -523,16 +541,14 @@ def musician_form():
             local_web_dest=headshot_path
         )
 
-        submissions = load_submissions()
-        submissions[slug] = {
+        save_submission(slug, {
             'name': name,
             'first_name': first_name,
             'last_name': last_name,
             'bio_html': bio_clean_html,
             'headshot_filename': headshot_filename,
             'updated_at': datetime.now(timezone.utc).isoformat(),
-        }
-        save_submissions(submissions)
+        })
 
         return (
             "<div style='text-align:center;'><h3>Success! Your info and "
@@ -650,11 +666,9 @@ def admin_dashboard():
 def admin_delete_submission(submission_id):
     require_admin_csrf()
 
-    submissions = load_submissions()
-    submission = submissions.get(submission_id)
+    submission = get_submission(submission_id)
     if submission is None:
         abort(404)
-
     # Remove the local headshot only. Drive files are left untouched.
     headshot_filename = submission.get('headshot_filename')
     if headshot_filename:
@@ -663,9 +677,7 @@ def admin_delete_submission(submission_id):
             os.remove(headshot_path)
         except FileNotFoundError:
             pass
-
-    del submissions[submission_id]
-    save_submissions(submissions)
+    delete_submission(submission_id)
 
     # Drop it from the season program too, so a stale id doesn't linger.
     season_program = load_season_program()
