@@ -268,6 +268,7 @@ def admin_required(view):
 def artist_required(view):
     @wraps(view)
     def wrapped_view(*args, **kwargs):
+        app.logger.warning('artist_required check: session=%s, cookies=%s', dict(session), dict(request.cookies))
         if not session.get('user_email') or not session.get('email_verified'):
             return redirect(url_for('artist_login', next=request.path))
         return view(*args, **kwargs)
@@ -637,6 +638,7 @@ def create_auth_session():
     session['email_verified'] = True
     session['is_admin'] = is_admin_login
     session['csrf_token'] = secrets.token_urlsafe(32)
+    app.logger.warning('Session set: session=%s', dict(session))
     return jsonify({'redirect': next_url})
 
 
