@@ -66,6 +66,7 @@ import {
     // On page load, check whether we're returning from a redirect sign-in.
     button.disabled = true;
     button.textContent = 'Checking sign-in status...';
+    console.log('Page loaded. Current URL:', window.location.href);
     getRedirectResult(auth)
       .then(async (result) => {
         console.log('getRedirectResult resolved:', result);
@@ -79,7 +80,10 @@ import {
         const idToken = await result.user.getIdToken();
         await completeSession(idToken);
       })
-      .catch((exception) => showError(exception.message));
+      .catch((exception) => {
+  console.error('getRedirectResult error:', exception);
+  showError(`${exception.code || 'unknown'}: ${exception.message}`);
+});
 
     button.addEventListener('click', async () => {
       button.disabled = true;
